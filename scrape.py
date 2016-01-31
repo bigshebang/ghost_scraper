@@ -41,6 +41,7 @@ def scrape(urls, p):
 #makes get request to given URL with given proxies
 #return status code
 def tryURL(url, p):
+	#TODO: add a try/catch all around the GET request
 	r = requests.get("https://ghostbin.com/paste/" + url + "/raw",
 		proxies=p)
 	print r.status_code,
@@ -55,6 +56,7 @@ def tryURL(url, p):
 	return r.status_code
 
 #return list of dictionaries, each containing a URL and its status
+#status 0 means it hasn't been attempted successfully yet and 1 means it has
 def getURLs(f, urls=[]):
 		#get urls and set status to 0
 		for i in range(0, safeTries):
@@ -69,8 +71,9 @@ def getURLs(f, urls=[]):
 					#check if there are any URLs leftover from last time
 					for j in range(0, safeTries):
 						if urls[j]["status"] == 0: #still some URLs left
-							break
+							return urls
 
+					urls = None
 					return None #we are done
 				else
 					break
@@ -83,8 +86,8 @@ def getURLs(f, urls=[]):
 	return urls
 
 #return a proxy as a string from the file
-def getProxy(f):
-	#code
+def getProxy(f, proxies=[], index=-1):
+	#
 
 #count num lines in a given file
 def getLines(filename):
@@ -142,8 +145,8 @@ def main():
 					time.sleep(proxyBuffer)
 
 				#get new URLs and proxy
-				urls[num] = getURLs(permFile)
-				proxies[num] = getProxy(proxyFile)
+				getURLs(permFile, urls=urls[num])
+				getProxy(proxyFile, proxies=proxies, index=num)
 
 				#if no more URLs or proxies left, we are done
 				if urls[num] == None or proxies[num] == None:
