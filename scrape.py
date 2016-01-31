@@ -1,18 +1,14 @@
 #!/usr/bin/env python
-import requests
-import time
+import requests, time, platform, shutil, argparse, sys
 from multiprocessing import Process, Lock
-import platform
 import subprocess as sub
-import shutil
 
-urls = []
 permFilename = "permutations"
 proxyFilename = "proxies"
 badProxyfilename = ".bad_proxies"
-logFilename = ".ghost_scraper.log"
 safeTries = 7 #safe number of URLs to try at once. not changeable
 current = 0
+args = ""
 
 #make 7 requests via the given proxy for the given URLs
 #also manage URLs and if this proxy turns bad
@@ -43,7 +39,6 @@ def scrape(urls, p):
 #makes get request to given URL with given proxies
 #return status code
 def tryURL(url, p):
-	#TODO: add a try/catch all around the GET request
 	try:
 		r = requests.get("https://ghostbin.com/paste/" + url + "/raw",
 			proxies=p)
@@ -183,6 +178,19 @@ def getLines(filename):
 			return sum(1 for _ in f)
 
 def main():
+	parser = argparse.ArgumentParser()
+	parser.add_argument("-p", "--processes",
+						help="Number of processes to use when scraping",
+						type=int)
+	parser.add_argument("-v", help="Increase output verbosity", action="count")
+	global args
+	args = parser.parse_args()
+	if args.processes < 1:
+		print "Processes must be a positive number"
+		return -1
+
+	sys.exit(0)
+
 	proxyBuffer = 15 #15 seconds to sleep in between using the same proxy
 	numProc = 4 #default. TODO: let user choose this. use arg parse
 	numProxies = getLines(proxyFilename)
@@ -242,6 +250,8 @@ def main():
 	print "It seems that either all proxies were exhausted or all URLs were"
 		  + "tested successfully."
 
+	return 0
+
 if __name__ == "__main__":
-	main()
+	sys.exit(main())
 
