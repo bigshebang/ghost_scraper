@@ -7,7 +7,6 @@ import subprocess as sub
 
 urls = []
 permFilename = "permutations"
-#currentFilename = ".current"
 proxyFilename = "proxies"
 logFilename = ".ghost_scraper.log"
 safeTries = 7 #safe number of URLs to try at once. not changeable
@@ -18,23 +17,16 @@ current = 0
 #return true if the proxy is still working by the end
 #return false and stop if the proxy gets 420s (blocked)
 def scrape(urls, p):
-	urls = []
-#	while true: #do this forever! or until no URLs left to try
-#		#use lock and get next set of URLs to try
-#		permLock.acquire()
-#		getURLs(urls)
-#		permLock.release()
-
-#		#use lock and get next proxy from file
-#		proxyLock.acquire()
-#		proxy = getProxy()
-#		proxyLock.release()
 	proxy = {
 		"https" : p
 	}
 
 	#try the seven URLs
 	for i in range(0, safeTries):
+		#if we already looked at this, skip to next
+		if urls[i]["status"] == 1:
+			continue
+
 		ret = tryURL(urls[i], proxy)
 
 		#if we get blocked return false
@@ -64,22 +56,25 @@ def tryURL(url, p):
 
 #return list of dictionaries, each containing a URL and its status
 def getURLs(f, urls=[]):
-	if not urls: #if blank array
 		#get urls and set status to 0
 		for i in range(0, safeTries):
-			line = f.readline()
-			urls[i] = {
-				"url" : line,
-				"status" : 0
-			}
-	else: #not new, already has URLs in it
-		for i in range(0, safeTries):
-			#if we see a URL that didn't get tested, the rest are untested
-			#so we don't need to add any new ones
-			if urls[i]["status"] == 0:
+			#if status is 0 then the rest are also 0 so we're done
+			if i < len(urls) and urls[i]["status"] == 0:
 				break
 
+			#get URL and put in list. if end of file we're done
 			line = f.readline()
+			if line == "":
+				if i == 0: #this means first thing we read is empty file
+					#check if there are any URLs leftover from last time
+					for j in range(0, safeTries):
+						if urls[j]["status"] == 0: #still some URLs left
+							break
+
+					return None #we are done
+				else
+					break
+
 			urls[i] = {
 				"url" : line,
 				"status" : 0
@@ -110,9 +105,11 @@ def main():
 	numProxies = getLines(proxyFilename)
 	done = False
 
-	#if we're going to use a cycle in two consecutive attempts we need to
-	#sleep in between
-	if numProc * 2 + 1 >= numProxies:
+	#we want there to be many more proxies than processes using proxies
+	#because if we use a proxy consecutively it will get blocked and it's
+	#better to keep as many proxies alive as possible. if not enough proxies
+	#then we will sleep for proxyBuffer seconds in between scrapes
+	if numProc * 4 + 1 >= numProxies:
 		sleep = True
 	else:
 		sleep = False
@@ -158,6 +155,9 @@ def main():
 				p[num].start()
 
 		time.sleep(1)
+	
+	print "It seems that either all proxies were exhausted or all URLs were"
+		  + "tested successfully."
 
 if __name__ == "__main__":
 	main()
