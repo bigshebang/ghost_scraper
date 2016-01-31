@@ -86,8 +86,32 @@ def getURLs(f, urls=[]):
 	return urls
 
 #return a proxy as a string from the file
-def getProxy(f, proxies=[], index=-1):
-	#
+def getProxy(f, proxies=[], index=0):
+	#get a new proxy
+	line = f.readline()
+
+	#if end of file, start from beginning of file and try again
+	if line == "":
+		f.flush()
+		line = f.readline()
+
+		if line == "": #if file is empty, no more proxies left
+			#code
+
+	counter = 0	
+	while line not in proxies:
+		proxies[index] = line
+		line = f.readline()
+
+		#this means we ran very low on proxies. sleep before trying again
+		if line == "":
+			if counter > 100: #tried 100 times, probably time to stop
+				proxies[index] = None
+				return None
+
+			sleep 5
+
+		counter += 1
 
 #count num lines in a given file
 def getLines(filename):
@@ -129,7 +153,7 @@ def main():
 	#get initial set of URLs and proxies
 	for i in range(0, numProc):
 		urls[i] = getURLs(permFile)
-		proxies[i] = getProxy(proxyFile)
+		proxies[i] = getProxy(proxyFile, index=i)
 
 	#start initial processes
 	for num in range(0, numProc):
