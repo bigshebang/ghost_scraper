@@ -2,13 +2,15 @@
 import requests, time, platform, shutil, argparse, sys, os
 from multiprocessing import Process, Lock
 import subprocess as sub
+import pprint
 
 currentFilename = ".current"
 permFilename = "permutations"
+permFile = ""
 proxyFilename = "proxies"
-badProxyfilename = ".bad_proxies"
+proxyFile = ""
+badProxyFilename = ".bad_proxies"
 safeTries = 7 #safe number of URLs to try at once. not changeable
-current = 0
 args = ""
 numProxies = 0
 
@@ -30,19 +32,19 @@ def scrape(urls, p):
 
 			continue
 
-		ret = tryURL(urls[i], proxy)
+		ret = tryURL(urls[i]["url"], proxy)
 
 		#if we get blocked return false
 		if ret == 420:
 			if args.v > 0:
 				print "[-] " + p + " has been blocked for 24 hours"
 
-			removeProxy() #get rid of proxy from proxylist
+			removeProxy(p) #get rid of proxy from proxylist
 			return false
 		else: #successfully tried to get the URL
 			urls[i]["status"] = 1
 	
-	return true
+	return True
 
 #makes get request to given URL with given proxies
 #return status code
@@ -64,63 +66,75 @@ def tryURL(url, p):
 			print "[+] got status code %d for %s" % (r.status_code, url)
 
 		with open("results/" + url, "w") as f:
-			f.write(r.text)
+			f.write(r.text.encode("utf8"))
 
 	return r.status_code
 
 #return list of dictionaries, each containing a URL and its status
 #status 0 means it hasn't been attempted successfully yet and 1 means it has
-def getURLs(f, urls=[]):
+def getURLs(u):
+	global permFile #so we can modify global var
+
+	if not u:
+		for i in range(0, safeTries):
+			u.append("")
+
 	#get urls and set status to 0
 	for i in range(0, safeTries):
 		#if status is 0 then the rest are also 0 so we're done
-		if i < len(urls) and urls[i]["status"] == 0:
+		if "status" in u[i] and u[i]["status"] == 0:
 			break
 
 		#get URL and put in list. if end of file we're done
-		line = f.readline().rstrip()
+		line = permFile.readline().rstrip()
 		if line == "":
 			if i == 0: #this means first thing we read is empty file
 				#check if there are any URLs leftover from last time
 				for j in range(0, safeTries):
-					if urls[j]["status"] == 0: #still some URLs left
-						return urls
+					if u[j]["status"] == 0: #still some URLs left
+						return u
 
 				if args.v > 0:
 					print "[-] No more URLs to scrape"
 
-				urls = None
-				return None #we are done
-			else:
-				break
+				#out of URLs
+				u = None
 
-		urls[i] = {
+			break
+
+		u[i] = {
 			"url" : line,
 			"status" : 0
 		}
 
 	with open(currentFilename, "w") as currentFile:
-		currentFile.write(f.tell())
+		read = str(permFile.tell())
+		currentFile.write(read)
 
-	return urls
+		if args.v > 2:
+			print "Read %s bytes" % read
+
+	return u
 
 #return a proxy as a string from the file
-def getProxy(f, proxies=[], index=0):
+def getProxy(proxies, index):
+	global proxyFile #so we can modify global var
+
 	#get a new proxy
-	line = f.readline().rstrip()
+	line = proxyFile.readline().rstrip()
 
 	#if end of file, start from beginning of file and try again
 	if line == "":
-		f.flush()
-		line = f.readline().rstrip()
+		proxyFile.flush()
+		line = proxyFile.readline().rstrip()
 
 		if line == "": #if file is empty, no more proxies left
 			proxies[index] = None
 			return None
 	
 	counter = 0	
-	while line in proxies and not proxyCheck(f, line): #if proxy in use already
-		line = f.readline().rstrip()
+	while line in proxies and not proxyCheck(line): #if proxy in use already
+		line = proxyFile.readline().rstrip()
 
 		#this means we ran very low on proxies. sleep before trying again
 		if line == "":
@@ -129,7 +143,7 @@ def getProxy(f, proxies=[], index=0):
 					print "[-] All proxies exhausted"
 
 				proxies[index] = None
-				return None
+				break
 
 			if args.v > 1:
 				print "[-] couldn't find free working proxy in list, sleeping 5"
@@ -138,9 +152,12 @@ def getProxy(f, proxies=[], index=0):
 		counter += 1
 
 	proxies[index] = line
+	return proxies[index]
 
 #will remove a given proxy from the proxy list file
-def removeProxy(f, proxy):
+def removeProxy(proxy):
+	global proxyFile #so we can edit global var
+
 	#decrement number of proxies
 	numProxies -= 1
 
@@ -149,20 +166,20 @@ def removeProxy(f, proxy):
 		badProxyFile.write(proxy + "\n")
 
 	#get current position in file
-	current = f.tell() - len(proxy) + 1
-	f.flush() #go to beginning of file to read in all proxies
+	current = proxyFile.tell() - len(proxy) + 1
+	proxyFile.flush() #go to beginning of file to read in all proxies
 	lines = []
-	line = f.readline().rstrip()
+	line = proxyFile.readline().rstrip()
 
 	#read in lines until we hit the end of the file
 	while line != "":
 		if line != proxy: #if it isn't the bad proxy, remember it
 			lines.append(line)
 
-		line = f.readline().rstrip()
+		line = proxyFile.readline().rstrip()
 	
 	#move file to backup
-	f.close()
+	proxyFile.close()
 	shutil.move(proxyFilename, ".old_" + proxyFilename)
 
 	#write new file without bad proxy
@@ -174,12 +191,12 @@ def removeProxy(f, proxy):
 	shutil.rmtree(".old_" + proxyFilename)
 
 	#go back to where we were in the file
-	f = open(proxyFilename, "r")
-	f.seek(current, 0)
+	proxyFile = open(proxyFilename, "r")
+	proxyFile.seek(current, 0)
 
 #check if proxy works and can connect to the internet with it
 #return true if it's good, false if it's not
-def proxyCheck(f, proxy):
+def proxyCheck(proxy):
 	proxies = {
 		"https" : proxy
 	}
@@ -187,12 +204,12 @@ def proxyCheck(f, proxy):
 	try:
 		r = requests.get("https://www.google.com", proxies=proxies)
 	except:
-		removeProxy(f, proxy)
+		removeProxy(proxy)
 		if args.v > 0:
 			print "[-] proxy %s has a connection issue" % proxy
 		return false
 	
-	return true
+	return True
 
 #count num lines in a given file
 def getLines(filename):
@@ -214,15 +231,24 @@ def main():
 						type=int)
 	parser.add_argument("-v", help="Increase output verbosity", action="count")
 
+	#so we can edit global vars
 	global numProxies
 	global args
+	global permFile
+	global proxyFile
+
+	#default number of processes
+	numProc = 4
+
 	args = parser.parse_args()
 	if args.processes != None and args.processes < 1:
 		print "Processes must be a positive number"
 		return -1
+	elif args.processes != None:
+		numProc = args.processes
 
+	#setup some vars
 	proxyBuffer = 15 #15 seconds to sleep in between using the same proxy
-	numProc = 4 #default. TODO: let user choose this. use arg parse
 	numProxies = getLines(proxyFilename)
 	done = False
 	sleep = False
@@ -231,20 +257,31 @@ def main():
 	#because if we use a proxy consecutively it will get blocked and it's
 	#better to keep as many proxies alive as possible. if not enough proxies
 	#then we will sleep for proxyBuffer seconds in between scrapes
-	if numProc * 4 + 1 >= numProxies:
-		if args.v > 1:
-			print "[-] Too many processes compared to proxies"
+	if numProxies != "" and numProxies != "0": #make sure numProxies isn't blank
+		numProxies = int(numProxies)
+		if (numProc * 4 + 1) >= numProxies:
+			if args.v > 1:
+				print "[-] Too many processes compared to proxies"
 
-		sleep = True
+			sleep = True
+	else:
+		print "No proxies given"
+		return 1
 
 	#variables needed
 	p = [] #holds processes
 	urls = [] #holds list of list of dictionaries containing URLs
 	proxies = [] #list of proxies stored as strings
 
+	#initialize all lists
+	for i in range(0, numProc):
+		p.append("")
+		urls.append([])
+		proxies.append("")
+
 	#open files for URLs and proxies
-	permFile = open(permFilename, "r")
-	proxyFile = open(proxyFilename, "r")
+	permFile = open(permFilename, "rb")
+	proxyFile = open(proxyFilename, "rb")
 
 	#check if we have already tried some URLs and go to correct spot in file
 	if os.path.isfile(currentFilename):
@@ -252,15 +289,26 @@ def main():
 			print "[+] found previous scraping spot"
 		with open(currentFilename) as tempFile: #get file position
 			dest = tempFile.readline().rstrip()
-			permFile.seek(dest, 0) #move to file position
 
-			if args.v > 1:
-				print "[+] Moving up %d bytes in the file" % dest
+			#if str isn't empty, move to that position in the file
+			if dest != "":
+				dest = int(dest)
+				permFile.seek(dest, 0) #move to file position
+
+				if args.v > 1:
+					print "[+] Moving up %d bytes in the file" % dest
+			else:
+				if args.v > 0:
+					print "[-] no value found in history file"
 
 	#get initial set of URLs and proxies
 	for i in range(0, numProc):
-		urls[i] = getURLs(permFile)
-		proxies[i] = getProxy(proxyFile, index=i)
+		urls[i] = (getURLs([]))
+		proxies[i] = getProxy(proxies, i)
+	
+	pprint.pprint(urls)
+	print "\n================================\n"
+	pprint.pprint(proxies)
 
 	#start initial processes
 	for num in range(0, numProc):
@@ -286,8 +334,8 @@ def main():
 					time.sleep(proxyBuffer)
 
 				#get new URLs and proxy
-				getURLs(permFile, urls=urls[num])
-				getProxy(proxyFile, proxies=proxies, index=num)
+				urls[num] = getURLs(u=urls[num])
+				proxies[num] = getProxy(proxies, num)
 
 				#if no more URLs or proxies left, we are done
 				if urls[num] == None or proxies[num] == None:
@@ -298,7 +346,7 @@ def main():
 				p[num] = Process(target=scrape, args=(urls[num], proxies[num]))
 				p[num].start()
 
-		if numProc * 4 + 1 >= numProxies:
+		if not sleep and numProc * 4 + 1 >= numProxies:
 			if args.v > 1:
 				print ("[-] Too many proxies have been lost, now need sleep"
 					  + " between process resets")
