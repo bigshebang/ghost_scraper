@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import requests, time, platform, shutil, argparse, sys
+import requests, time, platform, shutil, argparse, sys, os
 from multiprocessing import Process, Lock
 import subprocess as sub
 
@@ -10,6 +10,7 @@ badProxyfilename = ".bad_proxies"
 safeTries = 7 #safe number of URLs to try at once. not changeable
 current = 0
 args = ""
+numProxies = 0
 
 #make 7 requests via the given proxy for the given URLs
 #also manage URLs and if this proxy turns bad
@@ -25,7 +26,7 @@ def scrape(urls, p):
 		#if we already looked at this, skip to next
 		if urls[i]["status"] == 1:
 			if args.v > 2:
-				print "url %s already looked at, skipping" % (url)
+				print "[-] url %s already looked at, skipping" % (url)
 
 			continue
 
@@ -48,7 +49,7 @@ def scrape(urls, p):
 def tryURL(url, p):
 	try:
 		if args.v > 2:
-			print "making request to '%s'" % (p)
+			print "[+] making request to '%s'" % (p)
 
 		r = requests.get("https://google.com")
 		#r = requests.get("https://ghostbin.com/paste/" + url + "/raw",
@@ -86,7 +87,7 @@ def getURLs(f, urls=[]):
 						return urls
 
 				if args.v > 0:
-					print "No more URLs to scrape"
+					print "[-] No more URLs to scrape"
 
 				urls = None
 				return None #we are done
@@ -140,6 +141,8 @@ def getProxy(f, proxies=[], index=0):
 
 #will remove a given proxy from the proxy list file
 def removeProxy(f, proxy):
+	#decrement number of proxies
+	numProxies -= 1
 
 	#add bad proxy to bad proxies list
 	with open(badProxyFilename, "a") as badProxyFile:
@@ -194,8 +197,8 @@ def proxyCheck(f, proxy):
 #count num lines in a given file
 def getLines(filename):
 	#if nix, just use wc cuz it's way faster
-	os = platform.system().lower()
-	if os != "windows" and os != "unknown":
+	OS = platform.system().lower()
+	if OS != "windows" and OS != "unknown":
 		cmdList = ["wc", "-l", filename]
 		p = sub.Popen(cmdList,stdout=sub.PIPE,stderr=sub.PIPE)
 		output, errors = p.communicate()
@@ -210,13 +213,13 @@ def main():
 						help="Number of processes to use when scraping",
 						type=int)
 	parser.add_argument("-v", help="Increase output verbosity", action="count")
+
+	global numProxies
 	global args
 	args = parser.parse_args()
 	if args.processes != None and args.processes < 1:
 		print "Processes must be a positive number"
 		return -1
-
-	return 0
 
 	proxyBuffer = 15 #15 seconds to sleep in between using the same proxy
 	numProc = 4 #default. TODO: let user choose this. use arg parse
@@ -230,7 +233,7 @@ def main():
 	#then we will sleep for proxyBuffer seconds in between scrapes
 	if numProc * 4 + 1 >= numProxies:
 		if args.v > 1:
-			print "Too many processes compared to proxies"
+			print "[-] Too many processes compared to proxies"
 
 		sleep = True
 
@@ -262,7 +265,7 @@ def main():
 	#start initial processes
 	for num in range(0, numProc):
 		if args.v > 2:
-			print "starting process " + str(num)
+			print "[+] starting process " + str(num)
 
 		p[num] = Process(target=scrape, args=(urls[num], proxies[num]))
 		p[num].start()
@@ -273,11 +276,12 @@ def main():
 		for num in range(0, numProc):
 			if not p[num].is_alive(): #check if process is finished
 				if args.v > 0:
-					print "process %d is done, restarting with new data" % (num)
+					print ("[+] process %d is done, restarting with new data"
+						   % num)
 
 				if sleep: #sleep if too many processes compared to proxies
 					if args.v > 1:
-						print "sleeping for %d seconds" % (proxyBuffer)
+						print "[+] sleeping for %d seconds" % (proxyBuffer)
 
 					time.sleep(proxyBuffer)
 
@@ -294,10 +298,16 @@ def main():
 				p[num] = Process(target=scrape, args=(urls[num], proxies[num]))
 				p[num].start()
 
+		if numProc * 4 + 1 >= numProxies:
+			if args.v > 1:
+				print ("[-] Too many proxies have been lost, now need sleep"
+					  + " between process resets")
+			sleep = True
+
 		time.sleep(1)
 
 	print ("[+] It seems that either all proxies were exhausted or all URLs were"
-		   + "tested successfully")
+		   + " tested successfully")
 
 	return 0
 
