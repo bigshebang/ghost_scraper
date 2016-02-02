@@ -2,7 +2,6 @@
 import requests, time, platform, shutil, argparse, sys, os
 from multiprocessing import Process, Lock
 import subprocess as sub
-import pprint
 
 currentFilename = ".current"
 permFilename = "permutations"
@@ -35,12 +34,15 @@ def scrape(urls, p):
 		ret = tryURL(urls[i]["url"], proxy)
 
 		#if we get blocked return false
-		if ret == 420:
+		if ret == 420 or ret == 5000:
 			if args.v > 0:
-				print "[-] " + p + " has been blocked for 24 hours"
+				if ret == 420:
+					print "[-] " + p + " has been blocked for 24 hours"
+				else:
+					print "[-] there was an error with %s, assuming blocked" % p
 
 			removeProxy(p) #get rid of proxy from proxylist
-			return false
+			return False
 		else: #successfully tried to get the URL
 			urls[i]["status"] = 1
 	
@@ -53,11 +55,11 @@ def tryURL(url, p):
 		if args.v > 2:
 			print "[+] making request to '%s'" % (p)
 
-		r = requests.get("https://google.com")
-		#r = requests.get("https://ghostbin.com/paste/" + url + "/raw",
-		#	proxies=p)
+		#r = requests.get("https://google.com")
+		r = requests.get("https://ghostbin.com/paste/" + url + "/raw",
+			proxies=p)
 	except: #error so proxy is probably bad
-		return 420
+		return 5000
 
 	if r.status_code == 200 and r.text != "":
 		if args.v == 1:
@@ -156,7 +158,9 @@ def getProxy(proxies, index):
 
 #will remove a given proxy from the proxy list file
 def removeProxy(proxy):
-	global proxyFile #so we can edit global var
+	#so we can edit global vars
+	global proxyFile
+	global numProxies
 
 	#decrement number of proxies
 	numProxies -= 1
@@ -188,7 +192,8 @@ def removeProxy(proxy):
 			outfile.write(p + "\n")
 	
 	#we can get rid of backup proxy list cuz we made the other one now
-	shutil.rmtree(".old_" + proxyFilename)
+	if os.path.isfile(".old_" + proxyFilename): #only if file exists
+		os.remove(".old_" + proxyFilename)
 
 	#go back to where we were in the file
 	proxyFile = open(proxyFilename, "r")
@@ -203,11 +208,13 @@ def proxyCheck(proxy):
 
 	try:
 		r = requests.get("https://www.google.com", proxies=proxies)
+		if args.v > 2:
+			print "[+] proxy %s seems like a valid proxy" % proxy
 	except:
 		removeProxy(proxy)
 		if args.v > 0:
 			print "[-] proxy %s has a connection issue" % proxy
-		return false
+		return False
 	
 	return True
 
@@ -306,10 +313,6 @@ def main():
 		urls[i] = (getURLs([]))
 		proxies[i] = getProxy(proxies, i)
 	
-	pprint.pprint(urls)
-	print "\n================================\n"
-	pprint.pprint(proxies)
-
 	#start initial processes
 	for num in range(0, numProc):
 		if args.v > 2:
