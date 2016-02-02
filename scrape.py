@@ -9,6 +9,7 @@ permFile = ""
 proxyFilename = "proxies"
 proxyFile = ""
 badProxyFilename = ".bad_proxies"
+blockedProxyFilename = ".blocked_proxies"
 safeTries = 7 #safe number of URLs to try at once. not changeable
 args = ""
 numProxies = 0
@@ -18,6 +19,9 @@ numProxies = 0
 #return true if the proxy is still working by the end
 #return false and stop if the proxy gets 420s (blocked)
 def scrape(urls, p):
+	if args.v > 2:
+		print "process started"
+
 	proxy = {
 		"https" : p
 	}
@@ -41,23 +45,23 @@ def scrape(urls, p):
 				else:
 					print "[-] there was an error with %s, assuming blocked" % p
 
-			removeProxy(p) #get rid of proxy from proxylist
-			return False
+			removeProxy(p, blocked=True) #get rid of proxy from proxylist
+			break
+			#return False
 		else: #successfully tried to get the URL
 			urls[i]["status"] = 1
 	
-	return True
+	#return True
 
 #makes get request to given URL with given proxies
 #return status code
 def tryURL(url, p):
 	try:
 		if args.v > 2:
-			print "[+] making request to '%s'" % (p)
+			print "[+] making request to '%s' via '%s'" % (url, p)
 
-		#r = requests.get("https://google.com")
 		r = requests.get("https://ghostbin.com/paste/" + url + "/raw",
-			proxies=p)
+			proxies=p, timeout=30)
 	except: #error so proxy is probably bad
 		return 5000
 
@@ -114,7 +118,7 @@ def getURLs(u):
 		currentFile.write(read)
 
 		if args.v > 2:
-			print "Read %s bytes" % read
+			print "Read %s bytes, writing to .current" % read
 
 	return u
 
@@ -131,6 +135,9 @@ def getProxy(proxies, index):
 		line = proxyFile.readline().rstrip()
 
 		if line == "": #if file is empty, no more proxies left
+			if args.v > 0:
+				print "[-] No more proxies left"
+
 			proxies[index] = None
 			return None
 	
@@ -149,15 +156,18 @@ def getProxy(proxies, index):
 
 			if args.v > 1:
 				print "[-] couldn't find free working proxy in list, sleeping 5"
-			time.sleep(5)
 
+			time.sleep(5) #sleep to wait for new proxy
+
+
+		time.sleep(1) #small sleep cuz there should be more proxies
 		counter += 1
 
 	proxies[index] = line
 	return proxies[index]
 
 #will remove a given proxy from the proxy list file
-def removeProxy(proxy):
+def removeProxy(proxy, blocked=False):
 	#so we can edit global vars
 	global proxyFile
 	global numProxies
@@ -165,9 +175,13 @@ def removeProxy(proxy):
 	#decrement number of proxies
 	numProxies -= 1
 
-	#add bad proxy to bad proxies list
-	with open(badProxyFilename, "a") as badProxyFile:
-		badProxyFile.write(proxy + "\n")
+	#if proxy was blocked put in blocked proxy list, we can reuse in 24 hrs
+	if blocked:
+		with open(blockedProxyFilename, "a") as blockedProxyFile:
+			blockedProxyFile.write(proxy + "\n")
+	else: #proxy didn't work, so probably just a bad proxy
+		with open(badProxyFilename, "a") as badProxyFile:
+			badProxyFile.write(proxy + "\n")
 
 	#get current position in file
 	current = proxyFile.tell() - len(proxy) + 1
@@ -207,7 +221,7 @@ def proxyCheck(proxy):
 	}
 
 	try:
-		r = requests.get("https://www.google.com", proxies=proxies)
+		r = requests.get("https://www.google.com", proxies=proxies, timeout=45)
 		if args.v > 2:
 			print "[+] proxy %s seems like a valid proxy" % proxy
 	except:
@@ -330,12 +344,6 @@ def main():
 					print ("[+] process %d is done, restarting with new data"
 						   % num)
 
-				if sleep: #sleep if too many processes compared to proxies
-					if args.v > 1:
-						print "[+] sleeping for %d seconds" % (proxyBuffer)
-
-					time.sleep(proxyBuffer)
-
 				#get new URLs and proxy
 				urls[num] = getURLs(u=urls[num])
 				proxies[num] = getProxy(proxies, num)
@@ -344,6 +352,13 @@ def main():
 				if urls[num] == None or proxies[num] == None:
 					done = True
 					break
+
+				#sleep if too many processes compared to proxies
+				if sleep:
+					if args.v > 1:
+						print "[+] sleeping for %d seconds" % (proxyBuffer)
+
+					time.sleep(proxyBuffer)
 
 				#start process with new data
 				p[num] = Process(target=scrape, args=(urls[num], proxies[num]))
@@ -355,13 +370,22 @@ def main():
 					  + " between process resets")
 			sleep = True
 
+		if args.v > 2:
+			print "all processes checked on, sleeping for 1 second"
+
 		time.sleep(1)
 
 	print ("[+] It seems that either all proxies were exhausted or all URLs were"
 		   + " tested successfully")
+	print "[+] waiting for all processes to finish"
+
+	for i in range(0, numProc):
+		p[i].join()
 
 	return 0
 
 if __name__ == "__main__":
 	sys.exit(main())
+	if args.v > 2:
+		print "in main if statement, program quitting"
 
