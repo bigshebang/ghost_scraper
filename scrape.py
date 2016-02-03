@@ -65,9 +65,10 @@ def tryURL(url, p):
 		return 5000
 
 	if r.status_code == 200 and r.text != "":
-		if args.v == 1:
-			print "[+] found valid paste at " + url
-		elif args.v > 1:
+		if args.v > 0:
+			print "[+] found valid paste at " + url + "!"
+
+		if args.v > 1:
 			print "[+] got status code %d for %s" % (r.status_code, url)
 
 		with open("results/" + url, "w") as f:
