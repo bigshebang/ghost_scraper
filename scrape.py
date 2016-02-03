@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import requests, time, platform, shutil, argparse, sys, os
-from multiprocessing import Process, Lock
+from multiprocessing import Process, Queue
 import subprocess as sub
 
 currentFilename = ".current"
@@ -18,7 +18,7 @@ numProxies = 0
 #also manage URLs and if this proxy turns bad
 #return true if the proxy is still working by the end
 #return false and stop if the proxy gets 420s (blocked)
-def scrape(urls, p):
+def scrape(urls, p, q):
 	if args.v > 2:
 		print "process started"
 
@@ -47,11 +47,10 @@ def scrape(urls, p):
 
 			removeProxy(p, blocked=True) #get rid of proxy from proxylist
 			break
-			#return False
 		else: #successfully tried to get the URL
 			urls[i]["status"] = 1
-	
-	#return True
+
+	q.put(urls)
 
 #makes get request to given URL with given proxies
 #return status code
@@ -89,6 +88,10 @@ def getURLs(u):
 	for i in range(0, safeTries):
 		#if status is 0 then the rest are also 0 so we're done
 		if "status" in u[i] and u[i]["status"] == 0:
+			if args.v > 1:
+				print ("url %s has status of 0, so all following URLs do also"
+					   % u[i])
+
 			break
 
 		#get URL and put in list. if end of file we're done
@@ -131,7 +134,7 @@ def getProxy(proxies, index):
 
 	#if end of file, start from beginning of file and try again
 	if line == "":
-		proxyFile.flush()
+		proxyFile.seek(0, 0)
 		line = proxyFile.readline().rstrip()
 
 		if line == "": #if file is empty, no more proxies left
@@ -139,7 +142,7 @@ def getProxy(proxies, index):
 				print "[-] No more proxies left"
 
 			proxies[index] = None
-			return None
+			return proxies[index]
 	
 	counter = 0	
 	while line in proxies and not proxyCheck(line): #if proxy in use already
@@ -185,7 +188,7 @@ def removeProxy(proxy, blocked=False):
 
 	#get current position in file
 	current = proxyFile.tell() - len(proxy) + 1
-	proxyFile.flush() #go to beginning of file to read in all proxies
+	proxyFile.seek(0, 0) #go to beginning of file to read in all proxies
 	lines = []
 	line = proxyFile.readline().rstrip()
 
@@ -290,12 +293,14 @@ def main():
 		return 1
 
 	#variables needed
+	q = [] #holds Queue objects
 	p = [] #holds processes
 	urls = [] #holds list of list of dictionaries containing URLs
 	proxies = [] #list of proxies stored as strings
 
 	#initialize all lists
 	for i in range(0, numProc):
+		q.append(Queue())
 		p.append("")
 		urls.append([])
 		proxies.append("")
@@ -326,15 +331,15 @@ def main():
 	for i in range(0, numProc):
 		urls[i] = (getURLs([]))
 		proxies[i] = getProxy(proxies, i)
-	
+
 	#start initial processes
 	for num in range(0, numProc):
 		if args.v > 2:
 			print "[+] starting process " + str(num)
 
-		p[num] = Process(target=scrape, args=(urls[num], proxies[num]))
+		p[num] = Process(target=scrape, args=(urls[num], proxies[num], q[i]))
 		p[num].start()
-
+	
 	#while processes run, keep checking them so we can reconfigure and restart
 	#them when they die
 	while not done:
@@ -343,9 +348,13 @@ def main():
 				if args.v > 0:
 					print ("[+] process %d is done, restarting with new data"
 						   % num)
+				
+				#get urls updated var from process if not empty
+				if not q[num].empty():
+					urls[num] = q[num].get()
 
 				#get new URLs and proxy
-				urls[num] = getURLs(u=urls[num])
+				urls[num] = getURLs(urls[num])
 				proxies[num] = getProxy(proxies, num)
 
 				#if no more URLs or proxies left, we are done
@@ -361,7 +370,8 @@ def main():
 					time.sleep(proxyBuffer)
 
 				#start process with new data
-				p[num] = Process(target=scrape, args=(urls[num], proxies[num]))
+				p[num] = Process(target=scrape, args=(urls[num], proxies[num],
+								 q[num]))
 				p[num].start()
 
 		if not sleep and numProc * 4 + 1 >= numProxies:
@@ -385,7 +395,10 @@ def main():
 	return 0
 
 if __name__ == "__main__":
-	sys.exit(main())
+	ret = main() #call main
+
 	if args.v > 2:
 		print "in main if statement, program quitting"
+
+	sys.exit(ret)
 
