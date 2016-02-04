@@ -45,7 +45,6 @@ def scrape(urls, p, q):
 				else:
 					print "[-] there was an error with %s, assuming blocked" % p
 
-			removeProxy(p, blocked=True) #get rid of proxy from proxylist
 			break
 		else: #successfully tried to get the URL
 			urls[i]["status"] = 1
@@ -78,7 +77,7 @@ def tryURL(url, p):
 
 #return list of dictionaries, each containing a URL and its status
 #status 0 means it hasn't been attempted successfully yet and 1 means it has
-def getURLs(u):
+def getURLs(u, p):
 	global permFile #so we can modify global var
 
 	if not u:
@@ -89,9 +88,11 @@ def getURLs(u):
 	for i in range(0, safeTries):
 		#if status is 0 then the rest are also 0 so we're done
 		if "status" in u[i] and u[i]["status"] == 0:
-			if args.v > 1:
+			if args.v > 2:
 				print ("url %s has status of 0, so all following URLs do also"
 					   % u[i])
+
+			removeProxy(p, blocked=True)
 
 			break
 
@@ -156,7 +157,7 @@ def getProxy(proxies, index):
 					print "[-] All proxies exhausted"
 
 				proxies[index] = None
-				break
+				return proxies[index]
 
 			if args.v > 1:
 				print "[-] couldn't find free working proxy in list, sleeping 5"
@@ -188,7 +189,7 @@ def removeProxy(proxy, blocked=False):
 			badProxyFile.write(proxy + "\n")
 
 	#get current position in file
-	current = proxyFile.tell() - len(proxy) + 1
+	current = proxyFile.tell() - len(proxy) - 1
 	proxyFile.seek(0, 0) #go to beginning of file to read in all proxies
 	lines = []
 	line = proxyFile.readline().rstrip()
@@ -215,7 +216,13 @@ def removeProxy(proxy, blocked=False):
 
 	#go back to where we were in the file
 	proxyFile = open(proxyFilename, "r")
-	proxyFile.seek(current, 0)
+
+	#using try just in case current puts as at the end of the file
+	try:
+		proxyFile.seek(current, 0)
+	except:
+		if args.v > 2:
+			print "trying to seek in removeProxy(), but reached end of file"
 
 #check if proxy works and can connect to the internet with it
 #return true if it's good, false if it's not
@@ -225,7 +232,7 @@ def proxyCheck(proxy):
 	}
 
 	try:
-		r = requests.get("https://www.google.com", proxies=proxies, timeout=45)
+		r = requests.get("https://www.google.com", proxies=proxies, timeout=30)
 		if args.v > 2:
 			print "[+] proxy %s seems like a valid proxy" % proxy
 	except:
@@ -330,7 +337,7 @@ def main():
 
 	#get initial set of URLs and proxies
 	for i in range(0, numProc):
-		urls[i] = (getURLs([]))
+		urls[i] = (getURLs([], ""))
 		proxies[i] = getProxy(proxies, i)
 
 	#start initial processes
@@ -355,7 +362,7 @@ def main():
 					urls[num] = q[num].get()
 
 				#get new URLs and proxy
-				urls[num] = getURLs(urls[num])
+				urls[num] = getURLs(urls[num], proxies[num])
 				proxies[num] = getProxy(proxies, num)
 
 				#if no more URLs or proxies left, we are done
