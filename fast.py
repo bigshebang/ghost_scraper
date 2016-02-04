@@ -43,7 +43,7 @@ def main():
 			print "found valid paste at " + line + "!"
 			print "[+] got status code %d for %s" % (r.status_code, line)
 
-			with open("results/" + url, "w") as f:
+			with open("results/" + line, "w") as f:
 				f.write(r.text.encode("utf8"))
 		elif r.status_code == 420: #blocked so go up a line in the current file
 			print "received 420, blocked :("
