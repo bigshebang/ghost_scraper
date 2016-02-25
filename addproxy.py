@@ -29,11 +29,12 @@ def run():
 		vals = temp.split(":")
 		proxies.append(vals)
 	
-	for p in proxies:
-		print p[0] + ":" + p[1]
+	return proxies
 
 def main():
-	run()
+	proxies = run()
+	for p in proxies:
+		print p[0] + ":" + p[1]
 
 if __name__ == "__main__":
 	main()
